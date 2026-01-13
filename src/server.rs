@@ -140,7 +140,7 @@ async fn handle_build(
             send_response(
                 writer,
                 &Response::Error {
-                    message: format!("Failed to spawn process '{}': {}", program, e),
+                    message: format!("Failed to spawn process 'powershell': {}", e),
                 },
             )
             .await?;
