@@ -1,9 +1,9 @@
-mod server;
 mod client;
 mod protocol;
+mod server;
 
-use clap::{Parser, Subcommand};
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -40,6 +40,15 @@ enum Commands {
         /// Port to connect to
         #[arg(short, long, default_value = "19527")]
         port: u16,
+
+        /// Maximum number of output lines to display (0 = unlimited).
+        /// When truncating, keeps first N/2 and last N/2 lines.
+        #[arg(short = 'l', long, default_value = "500")]
+        max_lines: usize,
+
+        /// Show all output without truncation
+        #[arg(long, default_value = "false")]
+        no_truncate: bool,
     },
 
     /// Check if the server is running
@@ -65,8 +74,15 @@ async fn main() -> Result<()> {
         Commands::Server { init, port } => {
             server::run(init, port).await?;
         }
-        Commands::Run { dir, command, port } => {
-            client::run_build(dir, command, port).await?;
+        Commands::Run {
+            dir,
+            command,
+            port,
+            max_lines,
+            no_truncate,
+        } => {
+            let limit = if no_truncate { 0 } else { max_lines };
+            client::run_build(dir, command, port, limit).await?;
         }
         Commands::Status { port } => {
             client::check_status(port).await?;

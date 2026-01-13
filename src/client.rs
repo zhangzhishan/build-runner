@@ -1,10 +1,96 @@
 use crate::protocol::{Request, Response};
 use anyhow::{Context, Result};
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 
-pub async fn run_build(dir: PathBuf, command: String, port: u16) -> Result<()> {
+/// Output line with metadata for truncation
+struct OutputLine {
+    content: String,
+    is_stderr: bool,
+}
+
+/// Smart output buffer that keeps first N/2 and last N/2 lines
+struct TruncatingBuffer {
+    max_lines: usize,
+    head: Vec<OutputLine>,
+    tail: VecDeque<OutputLine>,
+    total_count: usize,
+    head_limit: usize,
+    tail_limit: usize,
+}
+
+impl TruncatingBuffer {
+    fn new(max_lines: usize) -> Self {
+        let head_limit = max_lines / 2;
+        let tail_limit = max_lines - head_limit;
+        Self {
+            max_lines,
+            head: Vec::with_capacity(head_limit),
+            tail: VecDeque::with_capacity(tail_limit + 1),
+            total_count: 0,
+            head_limit,
+            tail_limit,
+        }
+    }
+
+    fn push(&mut self, line: OutputLine) {
+        self.total_count += 1;
+
+        if self.max_lines == 0 {
+            // No truncation - print immediately
+            Self::print_line(&line);
+            return;
+        }
+
+        if self.head.len() < self.head_limit {
+            // Still filling head buffer - print and store
+            Self::print_line(&line);
+            self.head.push(line);
+        } else {
+            // Head is full, add to tail ring buffer
+            if self.tail.len() >= self.tail_limit {
+                self.tail.pop_front();
+            }
+            self.tail.push_back(line);
+        }
+    }
+
+    fn finish(self) {
+        if self.max_lines == 0 {
+            return;
+        }
+
+        let skipped = self.total_count.saturating_sub(self.head.len() + self.tail.len());
+
+        if skipped > 0 {
+            eprintln!();
+            eprintln!("... [{} lines truncated] ...", skipped);
+            eprintln!();
+
+            // Print the tail (wasn't printed in real-time)
+            for line in self.tail {
+                Self::print_line(&line);
+            }
+        } else if self.total_count > self.head.len() {
+            // No truncation but we have tail lines that weren't printed
+            for line in self.tail {
+                Self::print_line(&line);
+            }
+        }
+    }
+
+    fn print_line(line: &OutputLine) {
+        if line.is_stderr {
+            eprintln!("{}", line.content);
+        } else {
+            println!("{}", line.content);
+        }
+    }
+}
+
+pub async fn run_build(dir: PathBuf, command: String, port: u16, max_lines: usize) -> Result<()> {
     let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port))
         .await
         .context(format!(
@@ -20,6 +106,7 @@ pub async fn run_build(dir: PathBuf, command: String, port: u16) -> Result<()> {
     let mut line = String::new();
 
     let mut exit_code = 0;
+    let mut buffer = TruncatingBuffer::new(max_lines);
 
     loop {
         line.clear();
@@ -31,12 +118,11 @@ pub async fn run_build(dir: PathBuf, command: String, port: u16) -> Result<()> {
         let response: Response = serde_json::from_str(&line)?;
 
         match response {
-            Response::Output { line, is_stderr } => {
-                if is_stderr {
-                    eprintln!("{}", line);
-                } else {
-                    println!("{}", line);
-                }
+            Response::Output {
+                line: content,
+                is_stderr,
+            } => {
+                buffer.push(OutputLine { content, is_stderr });
             }
             Response::BuildComplete { exit_code: code } => {
                 exit_code = code;
@@ -48,6 +134,12 @@ pub async fn run_build(dir: PathBuf, command: String, port: u16) -> Result<()> {
             }
             _ => {}
         }
+    }
+
+    buffer.finish();
+
+    if exit_code != 0 {
+        eprintln!("\nBuild failed with exit code: {}", exit_code);
     }
 
     std::process::exit(exit_code);
