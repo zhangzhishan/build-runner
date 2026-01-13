@@ -1,0 +1,20 @@
+[package]
+name = "build-runner"
+version = "0.1.0"
+edition = "2021"
+description = "A client-server build runner that maintains initialized shell environment for faster builds"
+license = "MIT"
+repository = "https://github.com/zhangzhishan/build-runner"
+homepage = "https://github.com/zhangzhishan/build-runner"
+readme = "README.md"
+keywords = ["build", "server", "client", "shell", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+authors = ["Zhishan Zhang <zhangzhishan@gmail.com>"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+dirs = "5"
