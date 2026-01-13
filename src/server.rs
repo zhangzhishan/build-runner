@@ -115,6 +115,29 @@ async fn handle_build(
     dir: PathBuf,
     command: String,
 ) -> Result<()> {
+    // Validate directory exists
+    if !dir.exists() {
+        send_response(
+            writer,
+            &Response::Error {
+                message: format!("Directory does not exist: {}", dir.display()),
+            },
+        )
+        .await?;
+        return Ok(());
+    }
+
+    if !dir.is_dir() {
+        send_response(
+            writer,
+            &Response::Error {
+                message: format!("Path is not a directory: {}", dir.display()),
+            },
+        )
+        .await?;
+        return Ok(());
+    }
+
     // Parse command into program and args
     let parts: Vec<&str> = command.split_whitespace().collect();
     if parts.is_empty() {
